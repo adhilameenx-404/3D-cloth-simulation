@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>fi-3D cloth</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    overflow:hidden;
+    background:radial-gradient(ellipse at 50% -5%, #1c0800 0%, #070707 55%, #000 100%);
+    font-family:'Courier New',monospace;
+    touch-action:none;
+    user-select:none;
+  }
+  #canvas { display:block; touch-action:none; }
+  #hud {
+    position:fixed; top:16px; left:50%; transform:translateX(-50%);
+    padding:7px 20px;
+    background:rgba(0,0,0,0.55);
+    border:1px solid rgba(255,70,0,0.18);
+    border-radius:99px;
+    color:rgba(255,110,30,0.7);
+    font-size:11px; letter-spacing:0.07em;
+    pointer-events:none;
+    backdrop-filter:blur(12px);
+    white-space:nowrap;
+    transition:opacity 1.5s;
+  }
+  #hud b { color:rgba(255,150,60,0.9); }
+  #ui {
+    position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+    display:flex; gap:10px; z-index:20;
+  }
+  .btn {
+    padding:9px 22px;
+    border:1.5px solid rgba(255,80,0,0.45);
+    border-radius:99px;
+    font-size:12px; font-weight:700;
+    cursor:pointer;
+    background:rgba(8,8,8,0.9);
+    color:#ff5500;
+    letter-spacing:0.06em;
+    box-shadow:0 0 14px rgba(255,60,0,0.18),inset 0 0 8px rgba(255,60,0,0.04);
+    transition:transform .14s,box-shadow .14s,background .14s;
+    backdrop-filter:blur(8px);
+    font-family:'Courier New',monospace;
+  }
+  .btn:hover {
+    transform:translateY(-2px);
+    background:rgba(255,60,0,0.09);
+    box-shadow:0 0 24px rgba(255,60,0,0.38),inset 0 0 10px rgba(255,60,0,0.07);
+  }
+  .btn.active { border-color:rgba(255,120,0,0.75); color:#ff9900; }
+
+  /* Lock button gets a distinct locked/unlocked look */
+  #btnLock { border-color:rgba(255,40,0,0.6); }
+  #btnLock.unlocked { border-color:rgba(80,255,80,0.55); color:#88ff44;
+    box-shadow:0 0 18px rgba(80,255,80,0.2),inset 0 0 8px rgba(80,255,80,0.05); }
+  #btnLock.unlocked:hover { background:rgba(80,255,80,0.07);
+    box-shadow:0 0 28px rgba(80,255,80,0.3),inset 0 0 10px rgba(80,255,80,0.07); }
+
+  /* ── Sensitivity Slider ── */
+  #sens-wrap {
+    position:fixed; top:24px; right:24px;
+    display:flex; flex-direction:column; align-items:flex-end; gap:5px;
+    z-index:20;
+  }
+  #sens-row {
+    display:flex; justify-content:space-between; align-items:center;
+    width:100%; gap:8px;
+  }
+  #sens-label {
+    color:rgba(255,110,30,0.55);
+    font-size:10px; letter-spacing:0.1em; text-transform:uppercase;
+    font-family:'Courier New',monospace;
+  }
+  #sens-pct {
+    color:rgba(255,150,60,0.85);
+    font-size:10px; letter-spacing:0.05em;
+    font-family:'Courier New',monospace;
+  }
+  #sens-slider {
+    -webkit-appearance:none; appearance:none;
+    width:130px; height:2px;
+    border:none; outline:none; cursor:pointer;
+    border-radius:2px;
+    background: linear-gradient(
+      to right,
+      rgba(255,120,0,0.75) 0%,
+      rgba(255,120,0,0.75) var(--fill,50%),
+      rgba(255,255,255,0.1) var(--fill,50%),
+      rgba(255,255,255,0.1) 100%
+    );
+  }
+  #sens-slider::-webkit-slider-thumb {
+    -webkit-appearance:none;
+    width:13px; height:13px; border-radius:50%;
+    background:#ff6600;
+    box-shadow:0 0 8px rgba(255,80,0,0.7);
+    cursor:pointer; transition:box-shadow .15s;
+  }
+  #sens-slider::-webkit-slider-thumb:hover {
+    box-shadow:0 0 16px rgba(255,100,0,1);
+  }
+  #sens-slider::-moz-range-thumb {
+    width:13px; height:13px; border-radius:50%; border:none;
+    background:#ff6600;
+    box-shadow:0 0 8px rgba(255,80,0,0.7);
+    cursor:pointer;
+  }
+
+  /* ── Clock ── */
+  #clock-wrap {
+    position: fixed;
+    top: 16px;
+    left: 24px;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    pointer-events: none;
+  }
+  #clock-label {
+    color: rgba(255,110,30,0.45);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-family: 'Courier New', monospace;
+    padding-left: 2px;
+  }
+  #clock-panel {
+    position: relative;
+    padding: 10px 18px 10px 16px;
+    background: rgba(0,0,0,0.62);
+    border: 1px solid rgba(255,70,0,0.22);
+    border-radius: 6px;
+    backdrop-filter: blur(14px);
+    /* 3-D card tilt — purely CSS, no JS rotation */
+    transform: perspective(320px) rotateX(8deg) rotateY(-6deg);
+    transform-style: preserve-3d;
+    box-shadow:
+      0 2px 0 rgba(255,60,0,0.08),
+      0 6px 28px rgba(0,0,0,0.55),
+      inset 0 1px 0 rgba(255,120,40,0.08),
+      0 0 0 0.5px rgba(255,60,0,0.10);
+  }
+  /* subtle top-edge highlight to sell the 3-D bevel */
+  #clock-panel::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 6px;
+    background: linear-gradient(160deg, rgba(255,90,0,0.07) 0%, transparent 55%);
+    pointer-events: none;
+  }
+  #clock-time {
+    font-family: 'Courier New', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: #ff6600;
+    text-shadow:
+      0 0 8px rgba(255,80,0,0.70),
+      0 0 22px rgba(255,50,0,0.35);
+    line-height: 1;
+  }
+  #clock-time .sep {
+    display: inline-block;
+    opacity: 1;
+    transition: opacity 0.08s;
+    color: rgba(255,100,30,0.55);
+  }
+  #clock-time .sep.blink { opacity: 0.15; }
+  #clock-date {
+    margin-top: 5px;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    letter-spacing: 0.10em;
+    color: rgba(255,110,30,0.50);
+    text-transform: uppercase;
+  }
+  #clock-ms {
+    position: absolute;
+    bottom: 6px;
+    right: 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 8px;
+    color: rgba(255,70,0,0.30);
+    letter-spacing: 0.05em;
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="hud">
+  <b>fi-3D cloth</b> &nbsp;·&nbsp; drag=orbit &nbsp;·&nbsp; scroll=zoom &nbsp;·&nbsp; right-drag=pan &nbsp;·&nbsp; shift+drag=pull cloth
+</div>
+<div id="ui">
+  <button class="btn" id="btnReset">↺ Reset</button>
+  <button class="btn" id="btnOrbit">⟳ Auto-orbit</button>
+  <button class="btn" id="btnWind">≋ Wind</button>
+  <button class="btn" id="btnLock">🔒 View Locked</button>
+</div>
+
+<div id="clock-wrap">
+  <div id="clock-label">local time</div>
+  <div id="clock-panel">
+    <div id="clock-time">
+      <span id="ct-h">00</span><span class="sep" id="ct-s1">:</span><span id="ct-m">00</span><span class="sep" id="ct-s2">:</span><span id="ct-s">00</span>
+    </div>
+    <div id="clock-date">— — —</div>
+    <div id="clock-ms">000 ms</div>
+  </div>
+</div>
+
+<div id="sens-wrap">
+  <div id="sens-row">
+    <span id="sens-label">Sensitivity</span>
+    <span id="sens-pct">50%</span>
+  </div>
+  <input type="range" id="sens-slider" min="1" max="100" value="50">
+</div>
+
+<script>
+const canvas=document.getElementById('canvas');
+const ctx=canvas.getContext('2d');
+function resize(){ canvas.width=window.innerWidth; canvas.height=window.innerHeight; }
+resize();
+window.addEventListener('resize',()=>{ resize(); initCloth(); });
+
+// ── Cloth params ──
+function getP(){
+  const w=window.innerWidth;
+  if(w<480)  return {COLS:16,ROWS:12,SP:20};
+  if(w<768)  return {COLS:24,ROWS:16,SP:22};
+  if(w<1100) return {COLS:30,ROWS:18,SP:24};
+  return            {COLS:36,ROWS:20,SP:24};
+}
+let COLS,ROWS,SP,STRIDE,TEAR_DIST;
+function applyP(){ ({COLS,ROWS,SP}=getP()); STRIDE=COLS+1; TEAR_DIST=SP*2.75; }
+
+// ── Cloth state ──
+let pts=[],cons=[];
+function initCloth(){
+  applyP(); pts=[]; cons=[];
+  const sx=-COLS*SP/2, sy=-ROWS*SP/2;
+  for(let r=0;r<=ROWS;r++)
+    for(let c=0;c<=COLS;c++){
+      const x=sx+c*SP,y=sy+r*SP;
+      pts.push({x,y,z:0,px:x,py:y,pz:0,pinned:r===0});
+    }
+  for(let r=0;r<=ROWS;r++)
+    for(let c=0;c<=COLS;c++){
+      const i=r*STRIDE+c;
+      if(c<COLS) cons.push({a:i,b:i+1,      len:SP,alive:true});
+      if(r<ROWS) cons.push({a:i,b:i+STRIDE,  len:SP,alive:true});
+    }
+}
+
+// ── Camera ──
+const cam={theta:0.28,phi:0.38,dist:780,fov:920,tx:0,ty:0};
+function clampPhi(){ cam.phi=Math.max(0.04,Math.min(Math.PI-0.04,cam.phi)); }
+
+function basis(){
+  const sp=Math.sin(cam.phi),cp=Math.cos(cam.phi);
+  const st=Math.sin(cam.theta),ct=Math.cos(cam.theta);
+  return {
+    rx:[-st,0,ct],
+    ry:[-ct*cp,sp,-st*cp],
+    rz:[ct*sp,cp,st*sp]
+  };
+}
+
+function project(wx,wy,wz){
+  const b=basis();
+  const cx=b.rx[0]*wx+b.rx[1]*wy+b.rx[2]*wz;
+  const cy=b.ry[0]*wx+b.ry[1]*wy+b.ry[2]*wz;
+  const cz=b.rz[0]*wx+b.rz[1]*wy+b.rz[2]*wz+cam.dist;
+  if(cz<=1) return null;
+  const s=cam.fov/cz;
+  return {sx:canvas.width/2+cam.tx+cx*s, sy:canvas.height/2+cam.ty+cy*s, z:cz, s};
+}
+
+function s2w(sx,sy,camZ){
+  const b=basis();
+  const s=cam.fov/camZ;
+  const cx=(sx-canvas.width/2-cam.tx)/s;
+  const cy=(sy-canvas.height/2-cam.ty)/s;
+  const cz=camZ-cam.dist;
+  return {
+    x:b.rx[0]*cx+b.ry[0]*cy+b.rz[0]*cz,
+    y:b.rx[1]*cx+b.ry[1]*cy+b.rz[1]*cz,
+    z:b.rx[2]*cx+b.ry[2]*cy+b.rz[2]*cz
+  };
+}
+
+// ── Input ──
+const mouse={x:0,y:0,px:0,py:0,down:false,btn:0,shift:false};
+let autoOrbit=false, windOn=false, viewLocked=true;
+let CAM_SENS=0.006; // drag sensitivity, controlled by slider
+
+function onDown(x,y,btn,shift){ mouse.px=mouse.x=x;mouse.py=mouse.y=y;mouse.down=true;mouse.btn=btn;mouse.shift=shift; }
+function onMove(x,y){
+  if(!mouse.down){ mouse.px=mouse.x=x;mouse.py=mouse.y=y;return; }
+  const dx=x-mouse.px,dy=y-mouse.py;
+  if(!viewLocked){
+    if(mouse.btn===2){ cam.tx+=dx;cam.ty+=dy; }
+    else if(!mouse.shift){ cam.theta+=dx*CAM_SENS;cam.phi-=dy*CAM_SENS;clampPhi(); }
+  }
+  mouse.px=mouse.x;mouse.py=mouse.y;mouse.x=x;mouse.y=y;
+}
+function onUp(){ mouse.down=false; }
+
+canvas.addEventListener('mousedown',  e=>{ onDown(e.clientX,e.clientY,e.button,e.shiftKey);e.preventDefault(); });
+canvas.addEventListener('mouseup',    ()=>onUp());
+canvas.addEventListener('mousemove',  e=>onMove(e.clientX,e.clientY));
+canvas.addEventListener('wheel',      e=>{ if(!viewLocked) cam.dist=Math.max(120,Math.min(2400,cam.dist+e.deltaY*0.4));e.preventDefault(); },{passive:false});
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+
+let tPrev={};
+canvas.addEventListener('touchstart',e=>{
+  for(const t of e.changedTouches) tPrev[t.identifier]={x:t.clientX,y:t.clientY};
+  if(e.touches.length===1) onDown(e.touches[0].clientX,e.touches[0].clientY,0,true);
+  e.preventDefault();
+},{passive:false});
+canvas.addEventListener('touchend',e=>{ for(const t of e.changedTouches) delete tPrev[t.identifier]; if(!e.touches.length) onUp(); e.preventDefault();},{passive:false});
+canvas.addEventListener('touchmove',e=>{
+  if(e.touches.length===2 && !viewLocked){
+    const t0=e.touches[0],t1=e.touches[1];
+    const o0=tPrev[t0.identifier]||{x:t0.clientX,y:t0.clientY};
+    const o1=tPrev[t1.identifier]||{x:t1.clientX,y:t1.clientY};
+    const mx=(t0.clientX+t1.clientX)/2,my=(t0.clientY+t1.clientY)/2;
+    cam.theta+=(mx-(o0.x+o1.x)/2)*CAM_SENS; cam.phi-=(my-(o0.y+o1.y)/2)*CAM_SENS; clampPhi();
+    const nd=Math.hypot(t0.clientX-t1.clientX,t0.clientY-t1.clientY);
+    const od=Math.hypot(o0.x-o1.x,o0.y-o1.y);
+    cam.dist=Math.max(120,Math.min(2400,cam.dist-(nd-od)*1.6));
+    for(const t of e.changedTouches) tPrev[t.identifier]={x:t.clientX,y:t.clientY};
+  } else if(e.touches.length===1){
+    onMove(e.touches[0].clientX,e.touches[0].clientY);
+    for(const t of e.changedTouches) tPrev[t.identifier]={x:t.clientX,y:t.clientY};
+  }
+  e.preventDefault();
+},{passive:false});
+
+document.getElementById('btnReset').addEventListener('click',initCloth);
+document.getElementById('btnOrbit').addEventListener('click',()=>{
+  autoOrbit=!autoOrbit;
+  document.getElementById('btnOrbit').classList.toggle('active',autoOrbit);
+  document.getElementById('btnOrbit').innerHTML=autoOrbit?'⏸ Orbiting':'⟳ Auto-orbit';
+});
+document.getElementById('btnWind').addEventListener('click',()=>{
+  windOn=!windOn;
+  document.getElementById('btnWind').classList.toggle('active',windOn);
+});
+document.getElementById('btnLock').addEventListener('click',()=>{
+  viewLocked=!viewLocked;
+  const btn=document.getElementById('btnLock');
+  if(viewLocked){
+    btn.classList.remove('unlocked');
+    btn.innerHTML='🔒 View Locked';
+  } else {
+    btn.classList.add('unlocked');
+    btn.innerHTML='🔓 View Free';
+  }
+});
+
+// ── Physics ──
+let windT=0;
+const MRAD2=54*54;
+const GRAVITY=0.38, DRAG_C=0.986, ITERS=8;
+
+function update(){
+  if(autoOrbit) cam.theta+=0.003;
+  windT+=0.022;
+  for(const p of pts){
+    if(p.pinned) continue;
+    const vx=(p.x-p.px)*DRAG_C, vy=(p.y-p.py)*DRAG_C, vz=(p.z-p.pz)*DRAG_C;
+    p.px=p.x;p.py=p.y;p.pz=p.z;
+    p.x+=vx; p.y+=vy+GRAVITY; p.z+=vz;
+    if(windOn){
+      const w=Math.sin(windT+p.y*0.035+p.z*0.02)*0.22+0.07;
+      p.x+=w; p.z+=w*0.35;
+    }
+  }
+  for(let it=0;it<ITERS;it++){
+    if(mouse.down&&mouse.shift){
+      const cz=cam.dist*0.82;
+      const wp=s2w(mouse.x,mouse.y,cz);
+      const wo=s2w(mouse.px,mouse.py,cz);
+      const mdx=wp.x-wo.x,mdy=wp.y-wo.y,mdz=wp.z-wo.z;
+      for(const p of pts){
+        if(p.pinned) continue;
+        const dx=p.x-wp.x,dy=p.y-wp.y,dz=p.z-wp.z;
+        if(dx*dx+dy*dy+dz*dz<MRAD2){ p.px=p.x-mdx*2.3; p.py=p.y-mdy*2.3; p.pz=p.z-mdz*2.3; }
+      }
+    }
+    for(const c of cons){
+      if(!c.alive) continue;
+      const pa=pts[c.a],pb=pts[c.b];
+      const dx=pb.x-pa.x,dy=pb.y-pa.y,dz=pb.z-pa.z;
+      const dist=Math.sqrt(dx*dx+dy*dy+dz*dz)||0.001;
+      if(dist>TEAR_DIST){ c.alive=false; continue; }
+      const k=(c.len-dist)/dist*0.5;
+      const ox=dx*k,oy=dy*k,oz=dz*k;
+      if(!pa.pinned){pa.x-=ox;pa.y-=oy;pa.z-=oz;}
+      if(!pb.pinned){pb.x+=ox;pb.y+=oy;pb.z+=oz;}
+    }
+  }
+}
+
+// ── Connectivity ──
+let H,V;
+function buildConn(){
+  H=new Uint8Array(pts.length); V=new Uint8Array(pts.length);
+  for(const c of cons){
+    if(!c.alive) continue;
+    const d=c.b-c.a;
+    if(d===1) H[c.a]=1;
+    else if(d===STRIDE) V[c.a]=1;
+  }
+}
+
+// ── Lighting ──
+const LL=Math.sqrt(0.35*0.35+0.75*0.75+0.55*0.55);
+const lx=-0.35/LL, ly=-0.75/LL, lz=0.55/LL;
+
+function cross3(ax,ay,az,bx,by,bz){
+  return [ay*bz-az*by, az*bx-ax*bz, ax*by-ay*bx];
+}
+function faceN(pa,pb,pc){
+  const n=cross3(pb.x-pa.x,pb.y-pa.y,pb.z-pa.z, pc.x-pa.x,pc.y-pa.y,pc.z-pa.z);
+  const l=Math.sqrt(n[0]*n[0]+n[1]*n[1]+n[2]*n[2])||1;
+  return [n[0]/l,n[1]/l,n[2]/l];
+}
+function strokeColor(n,r){
+  const t=r/ROWS;
+  const dot=Math.max(0, n[0]*lx+n[1]*ly+n[2]*lz);
+  const back=Math.max(0,-(n[0]*lx+n[1]*ly+n[2]*lz));
+  const bright=0.08+dot*0.6+back*0.1;
+  const g=Math.round((16+t*88)*bright*2.8);
+  const a=(0.45+bright*0.55).toFixed(2);
+  return `rgba(255,${Math.min(255,g)},0,${a})`;
+}
+
+// ── Render ──
+let proj=[];
+function render(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  buildConn();
+  proj=pts.map(p=>project(p.x,p.y,p.z));
+
+  // Collect quads
+  const quads=[];
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      const i=r*STRIDE+c;
+      const i10=i+1,i01=i+STRIDE,i11=i01+1;
+      if(!H[i]||!H[i01]||!V[i]||!V[i10]) continue;
+      const pp=[proj[i],proj[i10],proj[i01],proj[i11]];
+      if(pp.some(p=>!p)) continue;
+      quads.push({r,i,i10,i01,i11, pp, depth:(pp[0].z+pp[1].z+pp[2].z+pp[3].z)*0.25});
+    }
+  }
+
+  // Painter's sort: back to front
+  quads.sort((a,b)=>b.depth-a.depth);
+
+  for(const q of quads){
+    const {r,i,i10,i01,i11,pp}=q;
+    const [pp00,pp10,pp01,pp11]=pp;
+    const [pw00,pw10,pw01,pw11]=[pts[i],pts[i10],pts[i01],pts[i11]];
+
+    const n1=faceN(pw00,pw10,pw01);
+    const n2=faceN(pw10,pw11,pw01);
+
+    const fill='#050504';
+    ctx.lineWidth=0.55;
+
+    ctx.beginPath();
+    ctx.moveTo(pp00.sx,pp00.sy); ctx.lineTo(pp10.sx,pp10.sy); ctx.lineTo(pp01.sx,pp01.sy);
+    ctx.closePath();
+    ctx.fillStyle=fill; ctx.fill();
+    ctx.strokeStyle=strokeColor(n1,r); ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(pp10.sx,pp10.sy); ctx.lineTo(pp11.sx,pp11.sy); ctx.lineTo(pp01.sx,pp01.sy);
+    ctx.closePath();
+    ctx.fillStyle=fill; ctx.fill();
+    ctx.strokeStyle=strokeColor(n2,r); ctx.stroke();
+  }
+
+  // Pin dots
+  ctx.shadowColor='rgba(255,50,0,0.85)'; ctx.shadowBlur=10;
+  ctx.fillStyle='rgba(255,95,5,0.95)';
+  for(let c=0;c<=COLS;c++){
+    const p=proj[c]; if(!p) continue;
+    ctx.beginPath(); ctx.arc(p.sx,p.sy,3.2,0,Math.PI*2); ctx.fill();
+  }
+  ctx.shadowBlur=0;
+
+  // Ground grid
+  const GS=SP*2.5,GN=7,gy=ROWS*SP/2+SP*3;
+  ctx.lineWidth=0.35;
+  for(let i=-GN;i<=GN;i++){
+    const fa=Math.abs(i)/GN;
+    ctx.strokeStyle=`rgba(255,40,0,${0.05*(1-fa)})`;
+    const pa=project(i*GS,gy,-GN*GS),pb=project(i*GS,gy,GN*GS);
+    if(pa&&pb){ ctx.beginPath();ctx.moveTo(pa.sx,pa.sy);ctx.lineTo(pb.sx,pb.sy);ctx.stroke(); }
+    const pc=project(-GN*GS,gy,i*GS),pd=project(GN*GS,gy,i*GS);
+    if(pc&&pd){ ctx.beginPath();ctx.moveTo(pc.sx,pc.sy);ctx.lineTo(pd.sx,pd.sy);ctx.stroke(); }
+  }
+}
+
+// ── Sensitivity slider ────────────────────────────────────────────────
+const sensSlider = document.getElementById('sens-slider');
+const sensPct    = document.getElementById('sens-pct');
+function updateSens(val){
+  // Map 1–100 → CAM_SENS range 0.001–0.016
+  CAM_SENS = 0.001 + (val - 1) * (0.015 / 99);
+  sensPct.textContent = val + '%';
+  sensSlider.style.setProperty('--fill', val + '%');
+}
+sensSlider.addEventListener('input', () => updateSens(Number(sensSlider.value)));
+updateSens(50); // init
+
+function loop(){ update(); render(); requestAnimationFrame(loop); }
+applyP(); initCloth(); loop();
+
+// ── Real-time Clock ────────────────────────────────────────────────────
+(function(){
+  const DAYS  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const MONTHS= ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const pad2  = n => String(n).padStart(2,'0');
+  const pad3  = n => String(n).padStart(3,'0');
+
+  const elH  = document.getElementById('ct-h');
+  const elM  = document.getElementById('ct-m');
+  const elS  = document.getElementById('ct-s');
+  const elS1 = document.getElementById('ct-s1');
+  const elS2 = document.getElementById('ct-s2');
+  const elDate = document.getElementById('clock-date');
+  const elMs = document.getElementById('clock-ms');
+
+  let lastSec = -1;
+
+  function tickClock(){
+    const now = new Date();
+    const raw = now.getHours(), m = now.getMinutes(), s = now.getSeconds(), ms = now.getMilliseconds();
+    const ampm = raw >= 12 ? 'PM' : 'AM';
+    const h12  = raw % 12 || 12;
+
+    elH.textContent  = pad2(h12);
+    elM.textContent  = pad2(m);
+    elS.textContent  = pad2(s);
+    elMs.textContent = ampm + ' · ' + pad3(ms) + 'ms';
+
+    // Colon blink on even seconds
+    const blink = s % 2 === 1;
+    elS1.classList.toggle('blink', blink);
+    elS2.classList.toggle('blink', blink);
+
+    // Update date only when second changes (saves DOM writes)
+    if(s !== lastSec){
+      lastSec = s;
+      elDate.textContent =
+        DAYS[now.getDay()] + ' · ' +
+        pad2(now.getDate()) + ' ' + MONTHS[now.getMonth()] + ' ' +
+        now.getFullYear();
+    }
+
+    requestAnimationFrame(tickClock);
+  }
+  tickClock();
+})();
+
+setTimeout(()=>{ const h=document.getElementById('hud'); if(h) h.style.opacity='0.15'; },6000);
+</script>
+</body>
+</html>
