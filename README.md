@@ -1,2 +1,3 @@
 # 3D-cloth-simulation
-A simple cloth simulation in a theme of red orange 
+https://3d-cloth-simu.netlify.app/
+hold shift to interact with cloth
